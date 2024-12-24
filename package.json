@@ -4,14 +4,19 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "nodemon server.js"
+    "start": "node backend/server.js",
+    "dev": "nodemon backend/server.js"
   },
+  "type": "module",
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "ejs": "^3.1.10",
     "express": "^4.21.2",
     "nodemon": "^3.1.9"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "mongoose": "^8.9.2"
   }
 }
