@@ -36,6 +36,7 @@ const corsOptions3 = {
 }
 
 app.use((req, res, next) => {
+return next();
   const origin = req.header('Origin');
 
   if (origin === 'http://localhost:5173') {
@@ -45,7 +46,7 @@ app.use((req, res, next) => {
   } else if (origin === 'http://localhost:3030') {
       cors(corsOptions3)(req, res, next);  
   } else {
-    res.status(403).send('Unoathorised!');
+    res.status(403).send('Unauthorised!');
   }
 });
 

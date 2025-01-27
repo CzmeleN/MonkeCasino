@@ -50,15 +50,15 @@ export default function Slots(){
         return `/cards/${randomRank}_of_Diamonds.jpg`;
     };
 
-    const animateCards = () => {
+    const animateCards = (card0, card1, card2) => {
         const animationDuration = 3000; // time in ms
         const interval = 120;  // interval in ms
         let elapsedTime = 0;
 
         const intervalId = setInterval(() => {
-            setImg1(getRandomCard());
-            setImg2(getRandomCard());
-            setImg3(getRandomCard());
+            setImg1(get_card_image(card0));
+            setImg2(get_card_image(card1));
+            setImg3(get_card_image(card2));
             elapsedTime += interval;
 
             if (elapsedTime >= animationDuration) {
@@ -72,27 +72,36 @@ export default function Slots(){
 
     const getToken = async () => {
         const token = localStorage.getItem('token');
+        if (!token) {
+            throw new Error("Missing token");
+        }
         const decodedToken = jwtDecode(token);
         return decodedToken._id;
     }
 
     const pull = async (cash) => {
+        console.log("pull -> cash:" , cash);
         if(balance < cash){
             return toast.error("You don't have enough money")
         }
         
         try {
-            const id = await getToken();
-            // const res = await axios.post(baseUrl + '/slots', {
-            //     balance: balance,
-            //     bet: cash, 
-            //     user_id: id
-            // });
+            const userId = await getToken();
 
-            // sprawdzamy czy wszystko ok jeśli tak
-            animateCards();
+            const res = await axios.get(`${baseUrl}/api/playSlots`, {
+                params: {
+                    user_id: userId,
+                    bet: cash
+                }
+            });
 
-            // ustaw właściwe karty 
+            if (res.status === 200 && res.data.success) {
+                const rolled = res.data.rolled;
+
+                animateCards(rolled[0], rolled[1], rolled[2]);
+            } else {
+                toast.error(res.data.message || "Slot machine error");
+            }
 
         } catch (e) {
             handleError(e);

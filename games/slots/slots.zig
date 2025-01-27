@@ -9,7 +9,7 @@ pub const SlotMachine = struct {
         var mult: u64 = undefined;
 
         while (i < 3) : (i += 1) {
-            self.rolled[i] = rand.intRangeAtMost(u5, 0, 13);
+            self.rolled[i] = rand.intRangeAtMost(u5, 0, 12);
         }
 
         const roll0: u64 = @intCast(self.rolled[0]);

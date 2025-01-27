@@ -59,6 +59,7 @@ pub const TableManager = struct {
     fn tableLoop(args: Args) !void {
         const table_ptr: *Table = args.table_ptr;
         const table_id: usize = args.table_id;
+        _ = table_id;
 
         while (true) {
             _ = try singleRound(table_ptr);
@@ -67,7 +68,7 @@ pub const TableManager = struct {
             table_ptr.kick_left();
             table_ptr.refill_bots();
 
-            std.debug.print("Table {d} ended round, waiting 5 seconds\n", .{table_id});
+            // std.debug.print("Table {d} ended round, waiting 5 seconds\n", .{table_id});
             std.time.sleep(2_000_000_000);
         }
     }
@@ -180,19 +181,83 @@ fn addCorsHeaders(req: zap.Request) void {
     _ = req.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization") catch {};
 }
 
-fn getValByKey(str: []const u8, key: []const u8) []const u8 {
-    var i: usize = 0;
-    const len = str.len;
-    var end_i: usize = len;
-    const max_len = str.len;
-    while (end_i < max_len) : (i += 1) {
-        if (std.mem.eql(str[i..end_i])) {
-            break;
+fn charVal(c: u8) u64 {
+    switch (c) {
+        '1' => return 1,
+        '2' => return 2,
+        '3' => return 3,
+        '4' => return 4,
+        '5' => return 5,
+        '6' => return 6,
+        '7' => return 7,
+        '8' => return 8,
+        '9' => return 9,
+        else => {
+            return 0;
+        },
+    }
+}
+
+fn packUserInfo(str: []const u8) UserData {
+    const nick: []const u8 = "nick";
+    const balance: []const u8 = "accoutBalance";
+    var curr: usize = 0;
+    var key_start: usize = undefined;
+    var name_buf: [64]u8 = undefined;
+    var bal_buf: [64]u8 = undefined;
+    var nick_len: usize = 0;
+    var bal_len: usize = 0;
+    var bal: u64 = 0;
+    var pow: u64 = 1;
+
+    for (str, 0..) |c, i| {
+        if (c == nick[curr]) {
+            curr += 1;
+            if (curr == 4) {
+                key_start = i + 4;
+                break;
+            }
+        } else {
+            curr = 0;
         }
-        end_i += 1;
+
+        if (i == 64) return UserData{ .balance = 0, .name = "" };
     }
 
+    while (str[key_start] != '"') : (key_start += 1) {
+        name_buf[nick_len] = str[key_start];
+        nick_len += 1;
+    }
 
+    const name: []const u8 = name_buf[0..nick_len];
+
+    curr = 0;
+
+    for (str, 0..) |c, i| {
+        if (c == balance[curr]) {
+            curr += 1;
+            if (curr == 13) {
+                key_start = i + 3;
+                break;
+            }
+        } else {
+            curr = 0;
+        }
+
+        if (i == 64) return UserData{ .balance = 0, .name = "" };
+    }
+
+    while (str[key_start] != ',') : (key_start += 1) {
+        bal_buf[bal_len] = str[key_start];
+        bal_len += 1;
+    }
+
+    while (bal_len > 0) : (bal_len -= 1) {
+        bal += charVal(bal_buf[bal_len - 1]) * pow;
+        pow *= 10;
+    }
+
+    return UserData{ .balance = bal, .name = name };
 }
 
 fn getUser(user_id: []const u8) !FullResponse {
@@ -231,10 +296,14 @@ fn getUser(user_id: []const u8) !FullResponse {
     const body = try rdr.readAllAlloc(gpa_allocator, 1024 * 1024 * 4);
     defer gpa_allocator.free(body);
 
-    const balance_str = getValueByKey(body, "accoutBalance");
-    const name = getValueByKey(body, "nick");
+    // std.debug.print("body: {s}", .{body});
 
-    const full = FullResponse{ .success = true, .data = UserData{.balance = bal, .name = name}};
+    if (body[11] == 't') {
+        // std.debug.print("EQUAL\n", .{});
+        return FullResponse{ .success = true, .data = packUserInfo(body) };
+    }
+
+    const full = FullResponse{ .success = false, .data = undefined };
     return full;
 }
 
@@ -322,7 +391,6 @@ fn updateUserBalance(user_id: []const u8, amount: i64) !bool {
     if (!user_response.success) {
         return false;
     }
-    std.debug.print("chilli3", .{});
 
     const current_balance: u64 = user_response.data.balance;
     const signed_curr: i64 = @intCast(current_balance);
@@ -339,7 +407,6 @@ fn updateUserBalance(user_id: []const u8, amount: i64) !bool {
     const url_str = try std.fmt.bufPrint(&url_buffer, "{s}{s}/{s}", .{ BASE_URL, USERS_ENDPOINT, user_id });
 
     const url = try std.Uri.parse(url_str);
-    std.debug.print("chilli", .{});
 
     var client = Client{ .allocator = gpa_allocator };
     defer client.deinit();
@@ -349,6 +416,7 @@ fn updateUserBalance(user_id: []const u8, amount: i64) !bool {
 
     var req = try client.open(.PATCH, url, .{ .server_header_buffer = header_buf });
     defer req.deinit();
+    std.debug.print("reposnes", .{});
 
     const update_body = try std.fmt.allocPrint(gpa_allocator, "{{\"balance\":{d}}}", .{new_balance});
     defer gpa_allocator.free(update_body);
@@ -435,49 +503,45 @@ fn handlePlaySlots(req: zap.Request) void {
     };
 
     if (!checkHasMoney(user_id_str, bet)) {
-        const res = updateUserBalance(user_id_str, 100000);
-        switch (@TypeOf(res)) {
-            bool => std.debug.print("{d}", .{res}),
-            else => {
-                req.setStatus(.ok);
-                req.setHeader("Content-Type", "application/json") catch {};
-                req.sendBody("{\"success\":false, \"message\":\"Insufficient funds\"}") catch {};
-                return;
-            },
-        }
+        req.setStatus(.ok);
+        req.setHeader("Content-Type", "application/json") catch {};
+        req.sendBody("{\"success\":false, \"message\":\"Insufficient funds\"}") catch {};
+        return;
     }
 
     const i_bet: i64 = @intCast(bet);
+    _ = i_bet;
 
-    const subtract_success = updateUserBalance(user_id_str, -i_bet) catch {
-        req.setStatus(.internal_server_error);
-        req.sendBody("{\"success\":false, \"message\":\"Failed to update balance\"}") catch {};
-        return;
-    };
+    // const subtract_success = updateUserBalance(user_id_str, -i_bet) catch {
+    //     req.setStatus(.internal_server_error);
+    //     req.sendBody("{\"success\":false, \"message\":\"Failed to update balance\"}") catch {};
+    //     return;
+    // };
 
-    if (!subtract_success) {
-        req.setStatus(.internal_server_error);
-        req.sendBody("{\"success\":false, \"message\":\"Failed to subtract bet\"}") catch {};
-        return;
-    }
+    // if (!subtract_success) {
+    //     req.setStatus(.internal_server_error);
+    //     req.sendBody("{\"success\":false, \"message\":\"Failed to subtract bet\"}") catch {};
+    //     return;
+    // }
 
     var slot_machine = Slots{
         .rolled = [3]u5{ 0, 0, 0 },
     };
     const payout = slot_machine.playRound(bet);
     const i_payout: i64 = @intCast(payout);
+    _ = i_payout;
 
-    const add_success = updateUserBalance(user_id_str, i_payout) catch {
-        req.setStatus(.internal_server_error);
-        req.sendBody("{\"success\":false, \"message\":\"Failed to update balance with payout\"}") catch {};
-        return;
-    };
-
-    if (!add_success) {
-        req.setStatus(.internal_server_error);
-        req.sendBody("{\"success\":false, \"message\":\"Failed to add payout to balance\"}") catch {};
-        return;
-    }
+    // const add_success = updateUserBalance(user_id_str, i_payout) catch {
+    //     req.setStatus(.internal_server_error);
+    //     req.sendBody("{\"success\":false, \"message\":\"Failed to update balance with payout\"}") catch {};
+    //     return;
+    // };
+    //
+    // if (!add_success) {
+    //     req.setStatus(.internal_server_error);
+    //     req.sendBody("{\"success\":false, \"message\":\"Failed to add payout to balance\"}") catch {};
+    //     return;
+    // }
 
     // Prepare rolled numbers for the response
     const rolled0 = slot_machine.rolled[0];
@@ -488,15 +552,25 @@ fn handlePlaySlots(req: zap.Request) void {
     var response_buffer: [256]u8 = undefined;
     const format_result = std.fmt.bufPrint(&response_buffer, "{{\"success\":true, \"win\":{d}, \"rolled\":[{d},{d},{d}]}}", .{ payout, rolled0, rolled1, rolled2 });
 
+    var end: usize = undefined;
+    for (response_buffer, 0..) |c, i| {
+        if (c == '}') {
+            end = i + 1;
+        }
+    }
+
+    const body: []const u8 = response_buffer[0..end];
+
+    std.debug.print("{s}", .{body});
+
     switch (@TypeOf(format_result)) {
         []u8 => {
             req.setStatus(.ok);
-            req.setHeader("Content-Type", "application/json") catch {};
-            req.sendBody(response_buffer) catch {};
+            req.sendBody(body) catch {};
         },
         else => {
-            req.setStatus(.internal_server_error);
-            req.sendBody("{\"success\":false, \"message\":\"Failed to format output\"}") catch {};
+            req.setStatus(.ok);
+            req.sendBody(body) catch {};
         },
     }
 }
@@ -592,8 +666,6 @@ fn handlePlayPokerTable(req: zap.Request) void {
     } else if (std.mem.eql(u8, action_str, "allin")) {
         chosen_action = .AllIn;
     } else {
-        // If we want to parse raise-100, etc. that's a bit more complex
-        // For simplicity, treat unknown as "fold" or return an error
         req.setStatus(.bad_request);
         req.sendBody("{\"error\":\"Unknown action\"}") catch {};
         return;
@@ -671,23 +743,24 @@ fn handleGetRoutes(req: zap.Request) void {
 fn handleRequest(req: zap.Request) void {
     switch (req.methodAsEnum()) {
         .OPTIONS => {
-            req.setStatus(.ok);
             addCorsHeaders(req);
+            req.setStatus(.ok);
             req.sendBody("") catch {};
         },
         .GET => {
-            handleGetRoutes(req);
             addCorsHeaders(req);
+            handleGetRoutes(req);
         },
         .PATCH => {
-            handleBalanceChange(req);
             addCorsHeaders(req);
+            handleBalanceChange(req);
         },
         .POST => {
-            req.setStatus(.bad_request);
             addCorsHeaders(req);
+            req.setStatus(.bad_request);
         },
         else => {
+            addCorsHeaders(req);
             req.setStatus(.method_not_allowed);
         },
     }
@@ -715,7 +788,7 @@ pub fn main() !void {
 
     // const user_id: []const u8 = "6797751a4807fd9c2eb56596";
     // const maybe_data = try getUser(user_id);
-    // if (maybe_data == null) {
+    // if (!maybe_data.success) {
     //     std.debug.print("no worky", .{});
     // } else {
     //     std.debug.print("worky", .{});
